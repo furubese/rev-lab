@@ -12,6 +12,10 @@
     pre { background: #f5f5f5; padding: .5rem .8rem; border-radius: 4px; }
     #notice { color: #666; }
     #notice:empty { display: none; }
+    details.level summary { cursor: pointer; padding: .3rem 0; }
+    details.level[open] summary { margin-bottom: .5rem; }
+    details.level h3 { font-size: 1rem; margin-top: 1rem; }
+    pre { overflow-x: auto; }
   </style>
 </head>
 <body>
@@ -42,6 +46,127 @@ Enter the flag: ???</pre>
   <h2>ターミナル</h2>
   <p id="notice"></p>
   <div id="terminal"></div>
+
+  <h2>答えと解説</h2>
+  <p>自力で解いてから開いてください。</p>
+
+  <details class="level">
+    <summary><strong>Level 1 の答えと解説を見る</strong></summary>
+
+    <h3>1. まず正体を調べる</h3>
+<pre>~ # file crackme1
+crackme1: ELF 64-bit LSB executable, x86-64, ..., statically linked, ..., not stripped</pre>
+    <ul>
+      <li><b>statically linked</b>: ライブラリが中に埋め込まれている。<code>ltrace</code> は使えない</li>
+      <li><b>not stripped</b>: 関数名（シンボル）が残っている。<code>main</code> を名前で指定して逆アセンブルできる</li>
+    </ul>
+
+    <h3>2. 中の文字列を眺める</h3>
+    <p>実行すると <code>Enter the flag:</code> と出るので、その文字列の周辺を見る。</p>
+<pre>~ # strings crackme1 | grep -C 3 "Enter the flag"
+[A\A]A^A_]
+&lt;@u5H
+@@CTF{strings_is_your_friend}
+Enter the flag:
+Correct!
+Wrong!</pre>
+    <p>表示メッセージと並んで <code>CTF{...}</code> 形式の文字列がそのまま見える。</p>
+
+    <h3>3. 本当に比較相手か確かめる（objdump）</h3>
+<pre>~ # objdump -d -M intel --disassemble=main crackme1 | less
+  401973: lea    rax,[rip+0x7d696]   # 47f010   ← フラグ文字列のアドレス
+  40197a: mov    QWORD PTR [rbp-0x98],rax
+  ...
+  4019ba: call   40a510 &lt;_IO_fgets&gt;   ← 入力を読む
+  ...
+  4019ec: mov    rdx,QWORD PTR [rbp-0x98]
+  4019f3: lea    rax,[rbp-0x90]
+  4019fa: mov    rsi,rdx              ← 第2引数: フラグ
+  4019fd: mov    rdi,rax              ← 第1引数: 入力
+  401a00: call   401120 &lt;_init+0x120&gt; ← strcmp
+  401a05: test   eax,eax
+  401a07: jne    401a1a               ← 0以外なら Wrong!</pre>
+    <p>x86-64 では第1引数が <code>rdi</code>、第2引数が <code>rsi</code>。入力とフラグを比べ、戻り値が0（一致）なら <code>Correct!</code>。</p>
+    <p>補足: 静的リンクでは <code>strcmp</code> が CPU に合わせて実装を切り替える仕組み（IFUNC）経由で呼ばれるため、<code>&lt;strcmp&gt;</code> ではなく <code>&lt;_init+0x120&gt;</code> と表示される。</p>
+
+    <h3>4. 動的に確かめる（gdb）</h3>
+<pre>~ # gdb ./crackme1
+(gdb) break *0x401a00
+(gdb) run
+Enter the flag: test
+(gdb) x/s $rdi
+0x7ffc...:  "test"
+(gdb) x/s $rsi
+0x47f010:   "CTF{strings_is_your_friend}"</pre>
+
+    <h3>答え</h3>
+<pre>CTF{strings_is_your_friend}</pre>
+    <p><b>学び</b>: フラグを平文で埋め込むと <code>strings</code> だけで見えてしまう。</p>
+  </details>
+
+  <details class="level">
+    <summary><strong>Level 2 の答えと解説を見る</strong></summary>
+
+    <h3>1. strings では見えない</h3>
+<pre>~ # strings crackme2 | grep CTF
+（何も出ない）</pre>
+    <p>メッセージ（<code>Enter the flag:</code> / <code>Correct!</code> / <code>Wrong!</code>）は見えるが、フラグらしき文字列がない。どこかで加工されている。</p>
+
+    <h3>2. 動きを観察する（strace）</h3>
+<pre>~ # strace ./crackme2
+...
+write(1, "Enter the flag: ", 16)
+read(0, "test\n", 1024)
+write(1, "Wrong!\n", 7)</pre>
+    <p>ファイルを開くなどの怪しい動きはない。判定はプログラム内部だけで行われている → 逆アセンブルを読む。</p>
+
+    <h3>3. main を読む（objdump）</h3>
+<pre>~ # objdump -d -M intel --disassemble=main crackme2 | less</pre>
+    <p><b>(a) 入力の前処理</b></p>
+<pre>  401973: mov    QWORD PTR [rbp-0x98],0x17   ← 定数 23 を保存
+  ...
+  4019b7: call   40a580 &lt;_IO_fgets&gt;           ← 最大 0x80 バイト読む
+  ...
+  4019df: call   401140 &lt;_init+0x140&gt;         ← strcspn(入力, "\n")
+  4019e4: mov    BYTE PTR [rbp+rax*1-0x90],0x0 ← 改行の位置を 0 にして切る</pre>
+    <p><b>(b) 長さチェック</b></p>
+<pre>  4019f6: call   401160 &lt;_init+0x160&gt;         ← strlen(入力)
+  4019fb: cmp    QWORD PTR [rbp-0x98],rax     ← 23 と比較
+  401a02: je     401a1d                       ← 23文字なら先へ、違えば Wrong!</pre>
+    <p>→ フラグは <b>23 文字</b>。</p>
+    <p><b>(c) 1文字ずつ比較するループ</b></p>
+<pre>  401a1d: mov    QWORD PTR [rbp-0xa0],0x0     ← i = 0
+  401a2a: ...
+  401a3b: movzx  eax,BYTE PTR [rax]           ← 入力[i]
+  401a3e: xor    eax,0x3a                     ← 入力[i] ^ 0x3a
+  401a41: mov    ecx,eax
+  401a43: lea    rdx,[rip+0xa8686]  # 4aa0d0 &lt;enc&gt;
+  401a54: movzx  eax,BYTE PTR [rax]           ← enc[i]
+  401a57: cmp    cl,al                        ← 一致しなければ Wrong!
+  401a71: add    QWORD PTR [rbp-0xa0],0x1     ← i++
+  401a80: cmp    rax,QWORD PTR [rbp-0x98]
+  401a87: jb     401a2a                       ← i &lt; 23 の間くり返す</pre>
+    <p>条件は <code>入力[i] ^ 0x3a == enc[i]</code>。</p>
+
+    <h3>4. enc の中身を取り出す</h3>
+<pre>~ # objdump -s -j .data crackme2
+ 4aa0d0 796e7c41 42554865 485f4c5f 48495358  yn|ABUHeH_L_HISX
+ 4aa0e0 565f6555 511b47..                    V_eUQ.G</pre>
+    <p>gdb でも見られる: <code>(gdb) x/23xb &amp;enc</code></p>
+
+    <h3>5. 逆算する</h3>
+    <p>XOR は同じ値でもう一度 XOR すると元に戻る（<code>(a ^ k) ^ k == a</code>）。つまり <code>入力[i] = enc[i] ^ 0x3a</code>。</p>
+<pre>0x79 ^ 0x3a = 0x43 → 'C'
+0x6e ^ 0x3a = 0x54 → 'T'
+0x7c ^ 0x3a = 0x46 → 'F'
+0x41 ^ 0x3a = 0x7b → '{'
+...</pre>
+    <p>23 バイト分くり返すと全体が得られる（手元に Python があれば <code>bytes(b ^ 0x3a for b in bytes.fromhex("796e7c41...")).decode()</code>）。</p>
+
+    <h3>答え</h3>
+<pre>CTF{xor_reversible_ok!}</pre>
+    <p><b>学び</b>: XOR で隠しても <code>strings</code> からは消えるだけで、鍵（<code>0x3a</code>）と暗号化データ（<code>enc</code>）は同じバイナリに入っている。処理を読めば逆算できる。</p>
+  </details>
 
   <!-- GitHub Pages はレスポンスヘッダを設定できないため、Service Worker で COOP/COEP を付与する -->
   <script src="./coi-serviceworker.js"></script>
