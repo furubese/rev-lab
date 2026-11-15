@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>rev-lab on browser (container2wasm)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.17.0/css/xterm.css">
+  <style>
+    body { font-family: sans-serif; margin: 1.5rem; }
+    #status { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>rev-lab on browser</h1>
+  <p>container2wasm で変換した Linux コンテナ（x86_64 / Bochs）がブラウザ内で動きます。起動まで少し時間がかかります。</p>
+  <p id="status">loading...</p>
+  <div id="terminal"></div>
+  <p>試すコマンド: <code>file crackme1</code> / <code>strings crackme1 | grep -C 3 CTF</code> / <code>strace ./crackme1</code></p>
+
+  <!-- GitHub Pages はレスポンスヘッダを設定できないため、Service Worker で COOP/COEP を付与する -->
+  <script src="./coi-serviceworker.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@4.17.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-pty@0.9.4/index.js"></script>
+  <script>
+    if (!window.crossOriginIsolated) {
+      document.getElementById("status").textContent = "cross-origin isolation を有効化しています（初回は自動でリロードされます）...";
+    } else {
+      document.getElementById("status").textContent = "コンテナを読み込み中（約180MB）...";
+      const xterm = new Terminal();
+      xterm.open(document.getElementById("terminal"));
+      const { master, slave } = openpty();
+      const termios = slave.ioctl("TCGETS");
+      termios.iflag &= ~(ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+      termios.oflag &= ~(OPOST);
+      termios.lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+      slave.ioctl("TCSETS", new Termios(termios.iflag, termios.oflag, termios.cflag, termios.lflag, termios.cc));
+      xterm.loadAddon(master);
+      const worker = new Worker("./worker.js");
+      // チャンク一覧は ./out.json（split.sh が生成）
+      worker.postMessage({ type: "init", imagename: "out" });
+      new TtyServer(slave).start(worker, undefined);
+    }
+  </script>
+</body>
+</html>
