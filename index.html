@@ -2,19 +2,46 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>rev-lab on browser (container2wasm)</title>
+  <title>rev-lab: バイナリ解析演習</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.17.0/css/xterm.css">
   <style>
-    body { font-family: sans-serif; margin: 1.5rem; }
-    #status { color: #666; }
+    body { font-family: sans-serif; margin: 1.5rem; max-width: 960px; }
+    h2 { margin-top: 1.8rem; border-bottom: 1px solid #ccc; padding-bottom: .2rem; }
+    .level { border: 1px solid #ddd; border-radius: 6px; padding: .6rem 1rem; margin: .8rem 0; }
+    .level h3 { margin: .2rem 0 .4rem; }
+    pre { background: #f5f5f5; padding: .5rem .8rem; border-radius: 4px; }
+    #notice { color: #666; }
+    #notice:empty { display: none; }
   </style>
 </head>
 <body>
-  <h1>rev-lab on browser</h1>
-  <p>container2wasm で変換した Linux コンテナ（x86_64 / Bochs）がブラウザ内で動きます。起動まで少し時間がかかります。</p>
-  <p id="status">loading...</p>
+  <h1>rev-lab: バイナリ解析演習</h1>
+
+  <h2>ルール</h2>
+  <ul>
+    <li>各バイナリにフラグを入力すると <code>Correct!</code> が出ます。フラグを見つけてください。</li>
+    <li>フラグの形式は <code>CTF{...}</code> です。</li>
+    <li>使えるツール: <code>file</code> / <code>strings</code> / <code>objdump</code> / <code>gdb</code> / <code>strace</code> / <code>less</code></li>
+    <li>環境はブラウザ内で完結しています。リロードすると初期状態に戻ります。</li>
+  </ul>
+
+  <h2>問題</h2>
+  <div class="level">
+    <h3>Level 1: はじめの一歩</h3>
+    <p>このバイナリにフラグを入力すると <code>Correct!</code> が出ます。フラグを見つけてください。</p>
+<pre>./crackme1
+Enter the flag: ???</pre>
+  </div>
+  <div class="level">
+    <h3>Level 2: 見えないフラグ</h3>
+    <p>このバイナリにフラグを入力すると <code>Correct!</code> が出ます。フラグを見つけてください。</p>
+<pre>./crackme2
+Enter the flag: ???</pre>
+  </div>
+
+  <h2>ターミナル</h2>
+  <p id="notice"></p>
   <div id="terminal"></div>
-  <p>試すコマンド: <code>file crackme1</code> / <code>strings crackme1 | grep -C 3 CTF</code> / <code>strace ./crackme1</code></p>
 
   <!-- GitHub Pages はレスポンスヘッダを設定できないため、Service Worker で COOP/COEP を付与する -->
   <script src="./coi-serviceworker.js"></script>
@@ -22,9 +49,8 @@
   <script src="https://cdn.jsdelivr.net/npm/xterm-pty@0.9.4/index.js"></script>
   <script>
     if (!window.crossOriginIsolated) {
-      document.getElementById("status").textContent = "cross-origin isolation を有効化しています（初回は自動でリロードされます）...";
+      document.getElementById("notice").textContent = "準備中です（初回は自動でリロードされます）...";
     } else {
-      document.getElementById("status").textContent = "コンテナを読み込み中（約180MB）...";
       const xterm = new Terminal();
       xterm.open(document.getElementById("terminal"));
       const { master, slave } = openpty();
@@ -34,6 +60,7 @@
       termios.lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
       slave.ioctl("TCSETS", new Termios(termios.iflag, termios.oflag, termios.cflag, termios.lflag, termios.cc));
       xterm.loadAddon(master);
+      xterm.write("起動中です。しばらくお待ちください...\r\n");
       const worker = new Worker("./worker.js");
       // チャンク一覧は ./out.json（split.sh が生成）
       worker.postMessage({ type: "init", imagename: "out" });
